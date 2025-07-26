@@ -23,8 +23,6 @@ For those interested, the foundational research that prompted the creation of th
 *   **The "Killer Feature" - Interactive Forwarding:** A guided, step-by-step wizard makes forwarding context between bots simple, robust, and error-proof.
 *   **Professional-Grade Responsiveness:** A non-blocking, asynchronous status indicator with a timer gives you complete confidence that the program is working during API calls.
 
-*[Optional but HIGHLY Recommended: Insert a GIF here demonstrating the `forward` command in action. Tools like LiceCap or Kap make this easy.]*
-
 ---
 
 ### Technical Architecture
