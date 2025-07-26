@@ -1,0 +1,7 @@
+google-generativeai
+python-dotenv
+```*(Note: I added `python-dotenv` to handle loading your API key from the `.env` file securely)*
+
+#### **3. `.gitignore`**
+
+This tells Git what files to ignore, keeping your repository clean.
