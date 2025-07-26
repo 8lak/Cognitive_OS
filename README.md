@@ -8,6 +8,12 @@ This script is a powerful, proof-of-concept multi-agent AI workspace designed to
 
 ---
 
+### The Genesis of this Project
+This Cognitive OS was not born from a random idea, but from a practical necessity. While working on a deep, multi-disciplinary research project to model behavioral dynamics, I found that existing AI chat interfaces were insufficient. Managing separate, complex lines of inquiry in fields like Spectral Graph Theory, Reinforcement Learning, and Dynamical Systems became a major bottleneck.
+I needed a tool that would allow me to orchestrate a team of specialized AI agents and facilitate seamless knowledge transfer between them. This workspace is the result of that need.
+For those interested, the foundational research that prompted the creation of this tool can be viewed here:
+[Read the Full Computational Framework Document](https://github.com/8lak/Complex_Systems_Modeling)
+
 ### Core Capabilities & User Features
 
 *   **Multi-Agent Workspace:** Load multiple, distinct AI bots from AI Studio `.json` files, each with its own persistent conversation history.
