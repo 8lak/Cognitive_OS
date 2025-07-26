@@ -14,6 +14,8 @@ I needed a tool that would allow me to orchestrate a team of specialized AI agen
 For those interested, the foundational research that prompted the creation of this tool can be viewed here:
 [Read the Full Computational Framework Document](https://github.com/8lak/Complex_Systems_Modeling)
 
+---
+
 ### Core Capabilities & User Features
 
 *   **Multi-Agent Workspace:** Load multiple, distinct AI bots from AI Studio `.json` files, each with its own persistent conversation history.
