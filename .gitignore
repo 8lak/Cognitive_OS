@@ -1,0 +1,26 @@
+# Python virtual environment
+venv/
+.venv/
+env/
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE and editor folders
+.vscode/
+.idea/
+
+# Cache folders (like the one from Hugging Face)
+.cache/
+
+# Data files (if you have a data folder you don't want to track)
+# data/
+# *.csv
+
+# Mac-specific files
+.DS_Store
+
+# Ignore all JSON files
+*.json
