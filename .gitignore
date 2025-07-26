@@ -24,3 +24,9 @@ __pycache__/
 
 # Ignore all JSON files
 *.json
+
+
+# Ignore specific data files by name
+Hypothesis Engine
+Spoke'speron
+Tipsy Driving_ Hyperfocus Illusion
