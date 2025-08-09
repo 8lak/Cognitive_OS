@@ -18,76 +18,199 @@ API_KEY = "AIzaSyCiC3emlCs-egKWPNpyFGP7LL8iPHCtAEw"
 # --- Command Handler Functions ---
 # These functions act as the bridge between the UI and the backend modules.
 
-def handle_show(cmd_line):
-    """Handles the 'show' command."""
+def handle_view_command():
+    """A new stateful 'view mode' for inspecting and acting on the workspace."""
     global last_viewed_bot
-    if len(cmd_line) < 2:
-        print("Usage: show <bot_name>")
-        return
-    bot_query = ' '.join(cmd_line[1:])
-    # The UI function returns the proper name of the bot that was viewed.
-    bot_name_proper = ui_display.display_bot_preview(bot_query)
-    if bot_name_proper:
-        last_viewed_bot = bot_name_proper
+    
+    # This variable tracks the bot we are currently focused on within this mode
+    currently_viewed_bot = None
 
-def handle_expand(cmd_line):
-    """Handles the 'expand' command."""
-    if len(cmd_line) < 2:
-        print("Usage: expand <message_id>")
-        return
-    if not last_viewed_bot:
-        print("--- Error: Use 'show <bot_name>' first to select a conversation. ---")
-        return
-    display_id = cmd_line[1]
-    ui_display.display_full_message(last_viewed_bot, display_id)
-
-def handle_chat(cmd_line):
-    """Handles the 'chat' command with dual purpose."""
-    global active_project
-    if len(cmd_line) < 2:
-        print("Usage: chat <bot_name>"); return
-
-    bot_query = ' '.join(cmd_line[1:])
-    bot_name = workspace_manager.find_bot_by_name_case_insensitive(bot_query)
-
-    if bot_name: # Bot found in current workspace (active project or previously loaded single bot)
-        prompt = input(f"Chatting with '{bot_name}': ")
-        response = api_client.get_ai_response(bot_name, prompt)
-        print(f"\n--- Response from {bot_name} ---\n{response}")
-    elif active_project is None: # No bot in workspace, and no active project
-        # Try to find it as a standalone bot in the 'projects' root directory
-        filepath = os.path.join("projects", f"{bot_query}.json") # Assumes bot_query is the exact filename (no spaces)
-
-        # We must make this content-aware like handle_load, so it supports "Hypothesis Engine" (no extension)
-        found_bot_filepath = None
-        for item in os.listdir("projects"):
-            item_path = os.path.join("projects", item)
-            if os.path.isfile(item_path):
-                try:
-                    with open(item_path, 'r', encoding='utf-8') as f: json.load(f)
-                    if item.lower() == bot_query.lower() or item.replace('.json', '').lower() == bot_query.lower():
-                        found_bot_filepath = item_path
-                        break
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    continue
-
-        if found_bot_filepath:
-             # A standalone bot makes active_project None
-            active_project = None
-            workspace_manager.clear_workspace() # Clear any previous single bot
-            loaded_name = workspace_manager.load_bot_from_json(found_bot_filepath, api_client.model)
-            if loaded_name:
-                print(f"Single bot '{loaded_name}' loaded for chat.")
-                prompt = input(f"Chatting with '{loaded_name}': ")
-                response = api_client.get_ai_response(loaded_name, prompt)
-                print(f"\n--- Response from {loaded_name} ---\n{response}")
-            else:
-                print(f"Error: Could not load '{bot_query}'.")
+    while True:
+        ui_display.clear_screen()
+        print("--- View & Inspect Mode ---")
+        
+        # Always show the high-level status
+        status_data = workspace_manager.get_workspace_status()
+        if not status_data:
+            print("Workspace is empty. Use 'project' or 'chat' to load/create bots.")
         else:
-            print(f"Error: Bot '{bot_query}' not found in current workspace or 'projects/' root.")
-    else: # Bot not found in workspace, but there IS an active project
-        print(f"Error: Bot '{bot_query}' not found in active project '{active_project}'.")
-        print("Use 'project -> Add Existing Bot' to add it, or 'project -> Load Entire Project' to reload all bots.")
+            print("Currently Loaded Bots:")
+            for bot_name, msg_count in status_data.items():
+                # Highlight the currently focused bot
+                prefix = ">>" if bot_name == currently_viewed_bot else "-"
+                print(f"{prefix} {bot_name} ({msg_count} messages)")
+
+        print("\n--- Commands ---")
+        if not currently_viewed_bot:
+            # Commands when no specific bot is being viewed
+            print("[show <bot_name>] - Focus on a bot and see its preview")
+            print("[exit]           - Return to the main menu")
+        else:
+            # Context-aware commands when a bot IS being viewed
+            print(f"Viewing: {currently_viewed_bot}")
+            print("[expand <id>]    - Show the full text of a message")
+            print("[mforward]       - Start a multi-forward, using this bot as the first source")
+            print("[unfocus]        - Return to the general bot list view")
+            print("[exit]           - Return to the main menu")
+        
+        print("----------------")
+        cmd_line = input("View Mode> ").strip().split()
+        cmd = cmd_line[0].lower() if cmd_line else ""
+
+        # --- Sub-command Logic ---
+        if cmd == "exit":
+            break # Exit the view mode loop
+
+        elif cmd == "unfocus":
+            currently_viewed_bot = None # Go back to the general view
+            last_viewed_bot = None
+
+        elif cmd == "show":
+            if len(cmd_line) > 1:
+                bot_query = ' '.join(cmd_line[1:])
+                bot_name_proper = ui_display.display_bot_preview(bot_query)
+                if bot_name_proper:
+                    # Set the context for this mode
+                    currently_viewed_bot = bot_name_proper
+                    last_viewed_bot = bot_name_proper
+            else:
+                print("Usage: show <bot_name>")
+                input("Press Enter to continue...")
+
+        elif cmd == "expand":
+            if not currently_viewed_bot:
+                print("You must 'show' a bot before you can expand its messages.");
+                input("Press Enter to continue..."); continue
+            if len(cmd_line) > 1:
+                display_id = cmd_line[1]
+                # Now we need a way to forward FROM the expanded view
+                ui_display.display_full_message(currently_viewed_bot, display_id)
+                
+                # --- NEW: Action Sub-menu after expanding ---
+                print("\nActions for this message:")
+                print("1: Forward this message (start mforward)")
+                print("0: Return to View Mode")
+                action_choice = input("Select action: ")
+                if action_choice == '1':
+                    # Pre-load the mforward payload with this message
+                    handle_mforward_with_initial_context(currently_viewed_bot, display_id)
+            else:
+                print("Usage: expand <id>")
+                input("Press Enter to continue...")
+
+        elif cmd == "mforward":
+            if not currently_viewed_bot:
+                print("You must 'show' a bot to use it as the first source.");
+                input("Press Enter to continue..."); continue
+            
+            # Start the mforward process, pre-loading the first bot
+            handle_mforward_with_initial_context(currently_viewed_bot)
+
+        else:
+            print("Unknown command for View Mode.")
+            input("Press Enter to continue...")
+
+def handle_chat():
+    """Dual-purpose handler for all direct bot interaction."""
+    global active_project, last_viewed_bot
+
+    # --- MODE 1: A project IS active ---
+    if active_project:
+        bots_in_project = list(workspace_manager.get_workspace_status().keys())
+        if not bots_in_project:
+            print(f"No bots loaded in project '{active_project}'. Use 'project' menu to create or add one."); return
+
+        print(f"\nSelect a bot to chat with in project '{active_project}':")
+        for i, bot_name in enumerate(bots_in_project, 1):
+            print(f"{i}: {bot_name}")
+        
+        try:
+            choice_idx = int(input("Choose bot: ")) - 1
+            if 0 <= choice_idx < len(bots_in_project):
+                bot_to_chat = bots_in_project[choice_idx]
+                last_viewed_bot = bot_to_chat
+                prompt = input(f"Chatting with '{bot_to_chat}': ")
+                response = api_client.get_ai_response(bot_to_chat, prompt)
+                print(f"\n--- Response from {bot_to_chat} ---\n{response}")
+            else: raise ValueError
+        except (ValueError, IndexError):
+            print("Invalid choice."); return
+
+    # --- MODE 2: NO project is active (Single Bot Mode) ---
+    else:
+        ui_display.clear_screen()
+        print("--- Single Bot Mode ---")
+        print("1: Chat with an Existing Standalone Bot")
+        print("2: Create a New Standalone Bot")
+        print("0: Go Back")
+        choice = input("Select an option: ")
+
+        if choice == '1': # Chat with Existing
+            standalone_bots = []
+            for item in os.listdir("projects"):
+                item_path = os.path.join("projects", item)
+                if os.path.isfile(item_path):
+                    try:
+                        with open(item_path, 'r', encoding='utf-8') as f: json.load(f)
+                        standalone_bots.append(item)
+                    except (json.JSONDecodeError, UnicodeDecodeError): continue
+            
+            if not standalone_bots:
+                print("No standalone bot files found in '/projects' root."); return
+            
+            print("\nSelect a standalone bot to load and chat with:")
+            for i, bot_file in enumerate(standalone_bots, 1):
+                print(f"{i}: {bot_file.replace('.json', '') if bot_file.endswith('.json') else bot_file}")
+            
+            try:
+                bot_choice_idx = int(input("Choose bot: ")) - 1
+                if 0 <= bot_choice_idx < len(standalone_bots):
+                    filepath = os.path.join("projects", standalone_bots[bot_choice_idx])
+                    workspace_manager.clear_workspace()
+                    loaded_name = workspace_manager.load_bot_from_json(filepath, api_client.model)
+                    if loaded_name:
+                        last_viewed_bot = loaded_name
+                        prompt = input(f"Chatting with '{loaded_name}': ")
+                        response = api_client.get_ai_response(loaded_name, prompt)
+                        print(f"\n--- Response from {loaded_name} ---\n{response}")
+                else: raise ValueError
+            except (ValueError, IndexError):
+                print("Invalid choice."); return
+        
+        elif choice == '2': # Create New Standalone Bot
+            print("\nHow would you like to create this bot's persona?")
+            print("1: From a Template")
+            print("2: From a New, Unique Prompt")
+            print("3. Co-author with Prompter Bot")
+            creation_choice = input("Select method: ")
+            
+            system_instruction = None
+            if creation_choice == '1': # From Template
+                # This logic can be copied/refactored from handle_project_command
+                # For brevity, this is a placeholder for that logic
+                print("Loading from template...")
+                # ... full template selection logic here ...
+            elif creation_choice == '2': # New Prompt
+                print("\nEnter the System Instruction. Press Enter on an empty line to save.")
+                lines = []
+                lines = []
+                while True:
+                    line = input("> ")
+                    if not line:
+                        if lines:
+                            system_instruction = "\n".join(lines)
+                        break
+                    lines.append(line)
+            elif creation_choice == '3': # Prompter Bot
+                system_instruction = api_client.launch_prompter_bot_session()
+
+            if system_instruction:
+                bot_name = input("\nEnter a name for the new standalone bot: ")
+                if bot_name:
+                    workspace_manager.create_standalone_bot(bot_name, system_instruction, api_client.model)
+                    ui_display.display_workspace_status()
+                else: print("Bot name cannot be empty.")
+            else: print("System instruction cannot be empty. Creation cancelled.")
 
 def handle_project_command():
     """The final, interactive hub for managing projects and their contents."""
@@ -434,19 +557,28 @@ def save_current_workspace_state():
             
     print(f"Saved {saved_count} bot(s) successfully.")
 
-def handle_interactive_mforward():
-    """Handles multi-context forwarding via an interactive wizard."""
+def handle_mforward_with_initial_context(first_bot=None, first_msg_id=None):
+    """
+    Handles MCF, optionally pre-loaded with initial context from the view mode.
+    """
     global last_viewed_bot
-    
-    if not active_project:
-        print("Error: A project must be active to use mforward."); return
-
-    # This list will hold the context snippets we collect
     mcf_payload = []
-    
+
     ui_display.clear_screen()
     print("--- Multi-Context Forward (MCF) ---")
-    print("You will select multiple context snippets to bundle into a single prompt.")
+    
+    # --- Pre-load initial context if provided ---
+    if first_bot and first_msg_id:
+        source_message = workspace_manager.find_message_by_display_id(first_bot, first_msg_id)
+        if source_message:
+            source_content = source_message.get("parts", [""])[0]
+            context_snippet = (
+                f"--- CONTEXT from '{first_bot}' (msg {first_msg_id}) ---\n"
+                f"{source_content}\n"
+                f"--- END CONTEXT ---\n"
+            )
+            mcf_payload.append(context_snippet)
+            print(f"Pre-loaded context from {first_bot}:{first_msg_id} into payload.")
 
     # --- The Context Aggregation Loop ---
     while True:
@@ -574,7 +706,7 @@ def run():
         # Dynamically set the prompt based on the active project
         prompt_prefix = f"(Aegis OS) [{active_project if active_project else 'No Project'}]> "
 
-        print("\nCommands: [project] [template] [delete] [status] [show <bot>] [expand <id>] [mforward] [chat <bot>] [exit]")
+        print("\nCommands: [chat] [project] [template] [delete] [view] [mforward] [exit]")
         cmd_line = input(prompt_prefix).strip().split()
         cmd = cmd_line[0].lower() if cmd_line else ""
         
@@ -591,15 +723,13 @@ def run():
         elif not cmd:
             continue
         elif cmd == "mforward": 
-            handle_interactive_mforward()
+            handle_mforward_with_initial_context()
         elif cmd == "template":
             handle_template_command()
-        elif cmd == "show":
-            handle_show(cmd_line)
-        elif cmd == "expand":
-            handle_expand(cmd_line)
+        elif cmd == "view":       
+            handle_view_command()
         elif cmd == "chat":
-            handle_chat(cmd_line)
+            handle_chat()
         else:
             print("Unknown command or missing arguments.")
 

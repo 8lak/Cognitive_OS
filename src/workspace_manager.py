@@ -187,3 +187,27 @@ def save_bot_state(project_name, bot_name):
         print(f"An error occurred while saving '{bot_name}': {e}")
         return False
 
+def create_standalone_bot(bot_name_raw, system_instruction, model_instance):
+    """Creates a new standalone bot .json file directly in the projects folder."""
+    # This is almost identical to create_new_bot, but saves to the root 'projects' path
+    bot_name = bot_name_raw.replace(' ', '_')
+    # We need a unique name to avoid conflicts, let's just save it with the extension
+    filename = f"{bot_name}.json" 
+    filepath = os.path.join("projects", filename)
+
+    if os.path.exists(filepath):
+        print(f"Error: A bot or project named '{bot_name}' already exists."); return None
+        
+    initial_data = {
+      "chunkedPrompt": { "chunks": [{"text": system_instruction, "role": "user"}]}
+    }
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(initial_data, f, indent=2)
+        print(f"Standalone bot '{bot_name_raw}' created successfully.")
+        return load_bot_from_json(filepath, model_instance)
+    except Exception as e:
+        print(f"An error occurred: {e}"); return None
+
+
+
