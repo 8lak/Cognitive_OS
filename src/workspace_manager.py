@@ -129,3 +129,61 @@ def create_new_bot(project_name, bot_name_raw, system_instruction, model_instanc
     except Exception as e:
         print(f"An error occurred while creating the bot file: {e}")
         return None
+    
+def save_bot_state(project_name, bot_name):
+    """
+    Saves the full, current conversation history from a bot's active session
+    back to its .json file on disk.
+    """
+    if bot_name not in chat_sessions:
+        # This can happen if a bot file exists but failed to load into a session
+        # print(f"Debug: Bot '{bot_name}' has no active session to save.")
+        return False
+
+    # Find the correct file path. We need to handle names with spaces vs. underscores.
+    # The key in the workspace is the user-facing name, which might have spaces.
+    bot_filename_base = bot_name.replace(' ', '_')
+    
+    # We must find the exact filename, which may or may not have .json
+    project_path = os.path.join("projects", project_name)
+    target_filepath = None
+    for item in os.listdir(project_path):
+        item_path = os.path.join(project_path, item)
+        item_name_no_ext = item.replace('.json', '') if item.endswith('.json') else item
+        if os.path.isfile(item_path) and item_name_no_ext == bot_filename_base:
+            target_filepath = item_path
+            break
+    
+    if not target_filepath:
+        # print(f"Debug: Could not find matching file for bot '{bot_name}' to save.")
+        return False
+
+    # Get the complete history from the live chat session object.
+    # The Google AI library conveniently stores this for us.
+    live_history = chat_sessions[bot_name].history
+    
+    # Reformat the history back into the simple dictionary structure our loader expects.
+    # This ensures a symmetrical save/load process.
+    history_as_dicts = []
+    for message in live_history:
+        # The 'parts' object is an iterable, we get the text from the first part.
+        content = "".join(part.text for part in message.parts)
+        history_as_dicts.append({"role": message.role, "parts": [content]})
+        
+    # Re-create the top-level JSON structure.
+    # NOTE: We are overwriting the "chunkedPrompt" for simplicity. V2.1 might separate initial prompt from history.
+    save_data = {
+        "chunkedPrompt": {
+            "chunks": [{"text": msg["parts"][0], "role": msg["role"]} for msg in history_as_dicts]
+        }
+    }
+
+    try:
+        # Overwrite the original file with the new, complete history.
+        with open(target_filepath, 'w', encoding='utf-8') as f:
+            json.dump(save_data, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"An error occurred while saving '{bot_name}': {e}")
+        return False
+

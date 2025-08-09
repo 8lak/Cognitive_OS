@@ -89,49 +89,6 @@ def handle_chat(cmd_line):
         print(f"Error: Bot '{bot_query}' not found in active project '{active_project}'.")
         print("Use 'project -> Add Existing Bot' to add it, or 'project -> Load Entire Project' to reload all bots.")
 
-def handle_interactive_forward():
-    """A guided wizard for the forward command."""
-    global last_viewed_bot
-    ui_display.clear_screen()
-    print("--- Interactive Forward ---")
-    
-    origin_bot = None
-    while True:
-        origin_query = input("1. Enter name of ORIGIN bot (to forward FROM): ")
-        origin_bot = workspace_manager.find_bot_by_name_case_insensitive(origin_query)
-        if origin_bot:
-            # Show the preview and update the last_viewed_bot
-            last_viewed_bot = ui_display.display_bot_preview(origin_bot)
-            break
-        print(f"  Error: Bot '{origin_query}' not found. Try again.")
-
-    msg_id = input(f"\n2. Enter Message ID from '{origin_bot}' to forward (e.g., A5): ")
-    source_message = workspace_manager.find_message_by_display_id(origin_bot, msg_id)
-    if not source_message:
-        print(f"  Error: Message '{msg_id}' not found. Aborting."); return
-
-    target_bot = None
-    while True:
-        target_query = input("3. Enter name of TARGET bot (to forward TO): ")
-        target_bot = workspace_manager.find_bot_by_name_case_insensitive(target_query)
-        if target_bot: break
-        print(f"  Error: Bot '{target_query}' not found. Try again.")
-
-    new_prompt = input(f"4. Enter your new prompt for '{target_bot}': ")
-    source_content = source_message.get("parts", [""])[0]
-    final_prompt = (
-        f"I am providing you with context from a different agent, '{origin_bot}'.\n"
-        f"--- CONTEXT from {origin_bot} (msg {msg_id}) ---\n"
-        f"{source_content}\n"
-        f"--- END CONTEXT ---\n\n"
-        f"Based on that context, here is my request: {new_prompt}"
-    )
-
-    response_text = api_client.get_ai_response(target_bot, final_prompt)
-    print(f"\n--- Response from {target_bot} ---")
-    print(response_text)
-    print("-" * 60)
-
 def handle_project_command():
     """The final, interactive hub for managing projects and their contents."""
     global active_project
@@ -156,6 +113,7 @@ def handle_project_command():
         print("\nHow would you like to create this bot?")
         print("1: From a Template")
         print("2: From a New, Unique Prompt")
+        print("3. Co-author with Prompter Bot")
         print("0: Cancel")
         creation_choice = input("Select creation method: ")
 
@@ -187,7 +145,10 @@ def handle_project_command():
                 if not line: break
                 lines.append(line)
             if lines: system_instruction = "\n".join(lines)
-        
+
+        elif creation_choice == '3': # Co-author with Prompter Bot
+            system_instruction = api_client.launch_prompter_bot_session()
+    
         else: return
 
         if not system_instruction:
@@ -257,6 +218,7 @@ def handle_project_command():
             if project_choice_idx == 0: return
 
             if 1 <= project_choice_idx <= len(projects):
+                save_current_workspace_state()
                 project_name_dir = projects[project_choice_idx - 1]
                 project_path = os.path.join(projects_dir, project_name_dir)
 
@@ -304,12 +266,20 @@ def handle_template_command():
         template_name = template_name_raw.replace(' ', '_') + ".txt"
         filepath = os.path.join(template_dir, template_name)
 
-        print("Enter the System Instruction for this template. Press Enter on an empty line to save.")
-        lines = []
-        while True:
-            line = input("> ")
-            if not line: break
-            lines.append(line)
+        print("\nHow would you like to create this template's content?")
+        print("1: Write it manually")
+        print("2: Co-author with Prompter Bot")
+        template_creation_choice = input("Select method: ")
+
+        if template_creation_choice == '1':
+            print("Enter the System Instruction for this template. Press Enter on an empty line to save.")
+            lines = []
+            while True:
+                line = input("> ")
+                if not line: break
+                lines.append(line)
+        elif template_creation_choice == '2':
+            lines = [api_client.launch_prompter_bot_session()]
         
         if not lines: print("Template content cannot be empty."); return
         
@@ -325,21 +295,31 @@ def handle_template_command():
             # Show the user-friendly name without the extension
             print(f"- {t.replace('.txt', '').replace('_', ' ')}")
     
-    elif choice == '3':
-        template_name_raw = input("Enter template name to view: ")
-        template_name = template_name_raw.replace(' ', '_') + ".txt"
-        filepath = os.path.join(template_dir, template_name)
+    elif choice == '3': # List & View Template Content
+        print("\nAvailable Templates:")
+        templates = [f for f in os.listdir(template_dir) if f.endswith(".txt")]
+        if not templates: print("- No templates found."); return
+
+        for i, t in enumerate(templates, 1):
+            print(f"{i}: {t.replace('.txt', '').replace('_', ' ')}")
+        print("0: Go Back")
+            
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                content = f.read()
-            print(f"\n--- Content of '{template_name_raw}' ---")
-            print(content)
-            print("----------------" + "-" * len(template_name_raw))
-        except FileNotFoundError:
-            print(f"Error: Template '{template_name_raw}' not found.")
-    
-    elif choice == '0': return
-    else: print("Invalid option.")
+            template_choice_idx = int(input("\nChoose template number to view its content: "))
+            if template_choice_idx == 0: return
+
+            if 1 <= template_choice_idx <= len(templates):
+                template_file = os.path.join(template_dir, templates[template_choice_idx - 1])
+                template_name_raw = templates[template_choice_idx - 1].replace('.txt', '').replace('_', ' ')
+                with open(template_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                print(f"\n--- Content of '{template_name_raw}' ---")
+                print(content)
+                print("----------------" + "-" * len(template_name_raw))
+            else:
+                raise ValueError
+        except (ValueError, IndexError):
+            print("Invalid template choice.")
 
 def handle_delete_command():
     """Handles deletion of projects, bots, or templates via an interactive menu."""
@@ -437,6 +417,150 @@ def handle_delete_command():
     elif choice == '0': return
     else: print("Invalid option.")
 
+def save_current_workspace_state():
+    """A helper function to save the state of all bots in the active project."""
+    if not active_project:
+        return # Nothing to save if no project is active
+
+    print(f"\nSaving workspace state for project '{active_project}'...")
+    
+    # Get the list of all bots currently loaded in the workspace
+    loaded_bots = workspace_manager.get_workspace_status().keys()
+    
+    saved_count = 0
+    for bot_name in loaded_bots:
+        if workspace_manager.save_bot_state(active_project, bot_name):
+            saved_count += 1
+            
+    print(f"Saved {saved_count} bot(s) successfully.")
+
+def handle_interactive_mforward():
+    """Handles multi-context forwarding via an interactive wizard."""
+    global last_viewed_bot
+    
+    if not active_project:
+        print("Error: A project must be active to use mforward."); return
+
+    # This list will hold the context snippets we collect
+    mcf_payload = []
+    
+    ui_display.clear_screen()
+    print("--- Multi-Context Forward (MCF) ---")
+    print("You will select multiple context snippets to bundle into a single prompt.")
+
+    # --- The Context Aggregation Loop ---
+    while True:
+        print(f"\nPayload contains {len(mcf_payload)} item(s).")
+        print("1: Add Context from a Bot")
+        print("2: Finish and Send Payload")
+        print("0: Cancel")
+        choice = input("Select an option: ")
+
+        if choice == '0':
+            print("MCF cancelled."); return
+        
+        if choice == '2': # Finish and Send
+            if not mcf_payload:
+                print("Payload is empty. Add at least one context item first."); continue
+            else:
+                break # Exit the loop to proceed to targeting
+
+        if choice == '1': # Add Context
+            origin_bot_name = None
+            while True:
+                origin_query = input("\nEnter name of a SOURCE bot (or type 'list'): ")
+                if origin_query.lower() == 'list':
+                    ui_display.display_workspace_status(); continue
+                
+                origin_bot_name = workspace_manager.find_bot_by_name_case_insensitive(origin_query)
+                if origin_bot_name:
+                    last_viewed_bot = ui_display.display_bot_preview(origin_bot_name)
+                    break
+                else:
+                    print(f"  Error: Bot '{origin_query}' not found.")
+            
+            print(f"\nSelect context type for '{origin_bot_name}':")
+            print("1: Single Message (by ID)")
+            print("2: Just-In-Time (JIT) Summary (you provide a prompt)")
+            context_type_choice = input("Choose context type: ")
+
+            # --- RESTRUCTURED LOGIC ---
+            
+            if context_type_choice == '1': # Single Message
+                msg_id = input(f"\nEnter Message ID from '{origin_bot_name}' to add: ")
+                source_message = workspace_manager.find_message_by_display_id(origin_bot_name, msg_id)
+                
+                if source_message:
+                    source_content = source_message.get("parts", [""])[0]
+                    context_snippet = (
+                        f"--- CONTEXT from '{origin_bot_name}' (msg {msg_id}) ---\n"
+                        f"{source_content}\n"
+                        f"--- END CONTEXT ---\n"
+                    )
+                    mcf_payload.append(context_snippet)
+                    print(f"Successfully added context from {origin_bot_name}:{msg_id} to payload.")
+                else:
+                    print(f"  Error: Message '{msg_id}' not found.")
+
+            elif context_type_choice == '2': # JIT Summary
+                print("\nHow would you like to write the JIT prompt?")
+                print("1: Write it manually")
+                print("2: Co-author with Prompter Bot")
+                jit_prompt_choice = input("Select method: ")
+                    
+                jit_prompt = None
+                if jit_prompt_choice == '1':
+                    jit_prompt = input(f"\nEnter your one-off prompt for '{origin_bot_name}': ")
+                elif jit_prompt_choice == '2':
+                        jit_prompt = api_client.launch_prompter_bot_session()
+                if not jit_prompt:
+                    print("JIT prompt cannot be empty."); continue
+                
+                jit_summary = api_client.get_onetime_response(origin_bot_name, jit_prompt)
+                
+                if jit_summary:
+                    context_snippet = (
+                        f"--- JIT SUMMARY from '{origin_bot_name}' ---\n"
+                        f"User Prompt: '{jit_prompt}'\n"
+                        f"Response: {jit_summary}\n"
+                        f"--- END SUMMARY ---\n"
+                    )
+                    mcf_payload.append(context_snippet)
+                    print(f"Successfully added JIT summary from '{origin_bot_name}' to payload.")
+                else:
+                    print("Failed to generate JIT summary.")
+            
+            else:
+                print("Invalid context type choice.")
+
+            
+
+    # --- Targeting and Execution ---
+    ui_display.clear_screen()
+    print("--- Sending MCF Payload ---")
+    print(f"Payload contains {len(mcf_payload)} context items.")
+    
+    target_bot_name = None
+    while True:
+        target_query = input("\nEnter name of the TARGET bot to receive this payload: ")
+        target_bot_name = workspace_manager.find_bot_by_name_case_insensitive(target_query)
+        if target_bot_name:
+            break
+        else:
+            print(f"  Error: Target bot '{target_query}' not found.")
+            
+    final_user_prompt = input(f"\nEnter the final prompt/task for '{target_bot_name}': ")
+
+    # Assemble the final prompt
+    final_prompt = "I am providing you with an aggregated payload of context from multiple sources.\n\n"
+    final_prompt += "\n".join(mcf_payload)
+    final_prompt += f"\nBased on all the context provided above, here is your task:\n{final_user_prompt}"
+
+    # Send it to the AI
+    response_text = api_client.get_ai_response(target_bot_name, final_prompt)
+    print(f"\n--- Response from {target_bot_name} ---")
+    print(response_text)
+    print("-" * 60)
 # --- Main Application Loop ---
 def run():
     """The main command handler loop."""
@@ -450,7 +574,7 @@ def run():
         # Dynamically set the prompt based on the active project
         prompt_prefix = f"(Aegis OS) [{active_project if active_project else 'No Project'}]> "
 
-        print("\nCommands: [project] [template] [delete] [status] [show <bot>] [expand <id>] [forward] [chat <bot>] [exit]")
+        print("\nCommands: [project] [template] [delete] [status] [show <bot>] [expand <id>] [mforward] [chat <bot>] [exit]")
         cmd_line = input(prompt_prefix).strip().split()
         cmd = cmd_line[0].lower() if cmd_line else ""
         
@@ -461,12 +585,13 @@ def run():
         elif cmd == "delete":
             handle_delete_command()
         elif cmd == "exit":
+            save_current_workspace_state()
             print("Aegis OS shutdown. Session terminated.")
             break
         elif not cmd:
             continue
-        elif cmd == "forward":
-            handle_interactive_forward()
+        elif cmd == "mforward": 
+            handle_interactive_mforward()
         elif cmd == "template":
             handle_template_command()
         elif cmd == "show":
